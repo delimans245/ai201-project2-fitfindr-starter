@@ -92,9 +92,78 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     Before writing code, complete the Planning Loop and State Management sections
     of planning.md — your implementation should match what you described there.
     """
-    # TODO: implement the planning loop
+    import re
+    
+    # Step 1: Initialize session
     session = _new_session(query, wardrobe)
-    session["error"] = "Planning loop not yet implemented."
+    
+    # Step 2: Parse the query to extract description, size, and max_price
+    # Pattern: description [size SIZE] [under|max|up to $PRICE]
+    parsed = {
+        "description": query,  # default: entire query
+        "size": None,
+        "max_price": None,
+    }
+    
+    # Extract max_price from patterns like "under $30", "max $25", "$50", "up to $40"
+    price_match = re.search(r'(?:under|max|up to)?\s*\$?(\d+(?:\.\d{2})?)', query, re.IGNORECASE)
+    if price_match:
+        parsed["max_price"] = float(price_match.group(1))
+        # Remove the price part from description
+        parsed["description"] = re.sub(
+            r'(?:under|max|up to)?\s*\$?\d+(?:\.\d{2})?',
+            '',
+            query,
+            flags=re.IGNORECASE
+        ).strip()
+    
+    # Extract size from patterns like "size M", "size S/M", "size W28", etc.
+    # Supported patterns: single letter, letter+letter, W+number, etc.
+    size_match = re.search(r'(?:size|sz\.?)\s+([^\s,]+)', query, re.IGNORECASE)
+    if size_match:
+        parsed["size"] = size_match.group(1)
+        # Remove the size part from description
+        parsed["description"] = re.sub(
+            r'(?:size|sz\.?)\s+[^\s,]+',
+            '',
+            parsed["description"],
+            flags=re.IGNORECASE
+        ).strip()
+    
+    session["parsed"] = parsed
+    
+    # Step 3: Call search_listings
+    search_results = search_listings(
+        description=parsed["description"],
+        size=parsed["size"],
+        max_price=parsed["max_price"],
+    )
+    session["search_results"] = search_results
+    
+    # Check if no results
+    if not search_results:
+        # Error path: no listings found
+        size_str = f" in size {parsed['size']}" if parsed['size'] else ""
+        price_str = f" under ${parsed['max_price']}" if parsed['max_price'] else ""
+        session["error"] = (
+            f"No listings found matching '{parsed['description']}'{size_str}{price_str}. "
+            f"Try searching for items in a different size, raising your budget, or using broader keywords "
+            f"(e.g., 'dress' instead of 'ballgown')."
+        )
+        return session
+    
+    # Step 4: Select the top result
+    session["selected_item"] = search_results[0]
+    
+    # Step 5: Call suggest_outfit
+    outfit_suggestion = suggest_outfit(session["selected_item"], wardrobe)
+    session["outfit_suggestion"] = outfit_suggestion
+    
+    # Step 6: Call create_fit_card
+    fit_card = create_fit_card(outfit_suggestion, session["selected_item"])
+    session["fit_card"] = fit_card
+    
+    # Step 7: Return the session (no error)
     return session
 
 

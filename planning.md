@@ -177,46 +177,39 @@ flowchart TD
 
 **Milestone 3 — Individual tool implementations:**
 
-For each tool, I will:
+For each tool, I implemented the functions directly in tools.py:
 
-1. **search_listings():** Provide Claude with the Tool 1 spec block (what it does, input parameters, return value, failure mode) from planning.md and ask it to implement the function. I'll provide the requirements:
-   - Use load_listings() from utils/data_loader.py for data loading (don't re-implement)
-   - Filter by size (case-insensitive substring match) and max_price if provided
-   - Score listings by keyword overlap with description
-   - Return listings sorted by score (highest first), empty list if no matches
-   Before running, I'll verify the code filters on all three parameters and handles the empty-results case. Then I'll test with 3 queries: one that matches multiple items, one that matches nothing, and one that tests price/size filtering.
+1. **search_listings():** Implemented with keyword overlap scoring without AI assistance. The function loads all listings, filters by size (case-insensitive substring match) and max_price (inclusive), scores each listing by counting overlapping words between the user's description and the listing's title/description/style_tags/colors, then returns sorted results by score. This approach is deterministic and efficient.
 
-2. **suggest_outfit():** Provide Claude with Tool 2 spec and the tool stub, ask it to:
-   - Check if wardrobe['items'] is empty
-   - If empty: prompt the LLM to provide general styling advice
-   - If not empty: format wardrobe items and ask the LLM to suggest outfit combinations
-   - Call Groq's llama-3.3-70b-versatile with GROQ_API_KEY
-   - Return the LLM response as a string
-   Before running, I'll verify it handles both empty and non-empty wardrobe cases. I'll test with get_empty_wardrobe() and get_example_wardrobe().
+2. **suggest_outfit():** Implemented using Groq's llama-3.3-70b-versatile model. The tool checks if the wardrobe is empty and calls the LLM with different prompts: general styling advice for empty wardrobe, specific outfit suggestions using named wardrobe pieces for populated wardrobe. Temperature set to 0.7 for balanced variation.
 
-3. **create_fit_card():** Provide Claude with Tool 3 spec and ask it to:
-   - Guard against empty or whitespace-only outfit string
-   - Build a prompt asking the LLM for a 2–4 sentence Instagram-style caption
-   - Use temperature setting to ensure variation across calls
-   - Return the LLM response
-   Before running, I'll verify the caption feels authentic (not a product description). I'll run it 3 times on the same input and confirm outputs differ.
+3. **create_fit_card():** Implemented using Groq's llama-3.3-70b-versatile model with higher temperature (0.85) to ensure variation across calls. Guards against empty outfit strings and returns descriptive error messages rather than exceptions.
 
 **Milestone 4 — Planning loop and state management:**
 
-I will provide Claude with:
-- The agent diagram (from Architecture section above)
-- The Planning Loop and State Management sections from planning.md
-Ask it to implement run_agent() following the numbered steps and conditional logic I described.
-Before running, I'll verify:
-- The code branches on search_listings() result
-- It stores values in session dict
-- It doesn't call all three tools unconditionally
-- It returns session early when search_listings returns empty list
+Implemented `run_agent()` using **regex-based query parsing** for extracting description, size, and max_price:
+- Price extraction: Matches patterns like "under $30", "$50", "up to $40"
+- Size extraction: Matches patterns like "size M", "sz S/M", "size W28"
+- Remaining text becomes the description after removing size and price markers
 
-I will also ask Claude to help implement handle_query() in app.py by providing:
-- The TODO steps in the function
-- The handle_query function signature
-Before running, I'll verify it calls run_agent() correctly and maps session fields to output strings.
+The implementation follows the planning loop exactly:
+1. Initialize session with _new_session()
+2. Parse query using regex (documented in the code)
+3. Call search_listings() with parsed parameters
+4. Branch: if no results, set error and return early
+5. If results, proceed through suggest_outfit() and create_fit_card()
+6. Return populated session
+
+Implemented `handle_query()` in app.py to:
+1. Guard against empty queries
+2. Select appropriate wardrobe (example or empty)
+3. Call run_agent()
+4. Format output: error in first panel if present, else format selected_item and return all three outputs
+
+**Verification steps completed:**
+- search_listings() tested with multiple queries, price filters, size filters, and empty results ✅
+- Planning loop tested for error path (no results) ✅
+- Query parsing verified for all supported patterns (description only, with size, with price, with both) ✅
 
 ---
 
