@@ -69,8 +69,51 @@ def search_listings(
 
     Before writing code, fill in the Tool 1 section of planning.md.
     """
-    # Replace this with your implementation
-    return []
+    all_listings = load_listings()
+    
+    # Filter by price and size
+    filtered = []
+    for listing in all_listings:
+        # Price filter
+        if max_price is not None and listing["price"] > max_price:
+            continue
+        
+        # Size filter (case-insensitive substring match)
+        if size is not None:
+            listing_size = listing["size"].lower()
+            size_lower = size.lower()
+            if size_lower not in listing_size:
+                continue
+        
+        filtered.append(listing)
+    
+    # Score listings by keyword overlap
+    description_keywords = set(description.lower().split())
+    
+    scored = []
+    for listing in filtered:
+        # Combine all text fields for matching
+        searchable_text = (
+            listing["title"].lower() + " " +
+            listing["description"].lower() + " " +
+            " ".join(listing["style_tags"]).lower() + " " +
+            " ".join(listing["colors"]).lower() + " " +
+            (listing["brand"].lower() if listing["brand"] else "")
+        )
+        
+        searchable_keywords = set(searchable_text.split())
+        
+        # Calculate overlap score
+        overlap = len(description_keywords & searchable_keywords)
+        
+        if overlap > 0:
+            scored.append((overlap, listing))
+    
+    # Sort by score (highest first)
+    scored.sort(key=lambda x: x[0], reverse=True)
+    
+    # Return just the listings (without scores)
+    return [listing for _, listing in scored]
 
 
 # ── Tool 2: suggest_outfit ────────────────────────────────────────────────────
@@ -100,8 +143,65 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
 
     Before writing code, fill in the Tool 2 section of planning.md.
     """
-    # Replace this with your implementation
-    return ""
+    client = _get_groq_client()
+    
+    # Check if wardrobe is empty
+    wardrobe_items = wardrobe.get("items", [])
+    
+    if not wardrobe_items:
+        # Empty wardrobe: ask for general styling advice
+        prompt = f"""You are a fashion stylist. A user is considering buying this thrifted item:
+
+Item: {new_item['title']}
+Description: {new_item['description']}
+Category: {new_item['category']}
+Style tags: {', '.join(new_item['style_tags'])}
+Colors: {', '.join(new_item['colors'])}
+
+They have an empty wardrobe and are just starting to build their closet.
+Suggest 1-2 outfit ideas for this item, describing what types of pieces would pair well (don't reference specific wardrobe items).
+Focus on the vibe and styling (e.g., "pair with baggy jeans and combat boots for a grunge look").
+Keep your response to 2-3 sentences."""
+
+    else:
+        # Non-empty wardrobe: suggest specific outfit combinations
+        wardrobe_text = "\n".join(
+            f"- {item['name']} (category: {item['category']}, colors: {', '.join(item['colors'])})"
+            for item in wardrobe_items
+        )
+        
+        prompt = f"""You are a fashion stylist. A user is considering buying this thrifted item:
+
+Item: {new_item['title']}
+Description: {new_item['description']}
+Category: {new_item['category']}
+Style tags: {', '.join(new_item['style_tags'])}
+Colors: {', '.join(new_item['colors'])}
+
+Their existing wardrobe contains:
+{wardrobe_text}
+
+Suggest 1-2 complete outfit combinations using the new item and specific pieces from their wardrobe (by name).
+Explain how the pieces work together and what vibe they create.
+Keep your response to 3-4 sentences."""
+
+    # Call the LLM
+    message = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.7,
+        max_tokens=300,
+    )
+    
+    response = message.choices[0].message.content.strip()
+    
+    # Ensure non-empty response
+    if not response:
+        response = "I can't suggest a specific outfit right now. Try adding some items to your wardrobe first!"
+    
+    return response
 
 
 # ── Tool 3: create_fit_card ───────────────────────────────────────────────────
@@ -133,5 +233,40 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
 
     Before writing code, fill in the Tool 3 section of planning.md.
     """
-    # Replace this with your implementation
-    return ""
+    # Guard against empty outfit
+    if not outfit or not outfit.strip():
+        return "Can't generate a fit card — the outfit suggestion is missing. Please try the search again."
+    
+    client = _get_groq_client()
+    
+    prompt = f"""You are a fashion influencer writing an Instagram or TikTok caption for an OOTD (outfit of the day) post.
+
+The thrifted item you just scored:
+- Name: {new_item['title']}
+- Price: ${new_item['price']}
+- Platform: {new_item['platform']}
+- Condition: {new_item['condition']}
+
+How you styled it:
+{outfit}
+
+Write a casual, authentic 2-4 sentence caption that:
+1. Mentions where you thrifted it (platform) and the price naturally (once each)
+2. References the outfit vibe and specific styling choices
+3. Feels like a real person sharing their thrift find, not a product description
+4. Can include casual language, emojis, or personality
+
+Just write the caption, nothing else."""
+
+    message = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.85,  # Higher temperature for variation
+        max_tokens=200,
+    )
+    
+    response = message.choices[0].message.content.strip()
+    
+    return response if response else "This thrifted piece is a vibe! 🖤"
